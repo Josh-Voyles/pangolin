@@ -36,6 +36,7 @@ const pendingClientPings: Map<number, number> = new Map();
 const pendingOlmArchiveResets: Set<string> = new Set();
 
 let flushTimer: NodeJS.Timeout | null = null;
+let staggerTimer: NodeJS.Timeout | null = null;
 
 /**
  * Guard that prevents two flush cycles from running concurrently.
@@ -353,42 +354,58 @@ function isTransientError(error: any): boolean {
 
 /**
  * Start the background flush timer. Call this once at server startup.
+ *
+ * The timer is offset by STAGGER_DELAY_MS so that ping flushes do not
+ * coincide with other periodic writers (audit log flushes, Traefik config
+ * reads). In SQLite DELETE journal mode every writer acquires an exclusive
+ * file-level lock, so staggering reduces peak contention windows.
  */
+const STAGGER_DELAY_MS = 5000;
+
 export function startPingAccumulator(): void {
-    if (flushTimer) {
-        return; // Already running
+    if (flushTimer || staggerTimer) {
+        return; // Already running or starting up
     }
 
-    flushTimer = setInterval(async () => {
-        // Skip this tick if the previous flush is still in progress.
-        // setInterval does not await async callbacks, so without this guard
-        // two flush cycles can run concurrently and deadlock each other on
-        // overlapping bulk UPDATE statements.
-        if (isFlushing) {
-            logger.debug(
-                "Ping accumulator: previous flush still in progress, skipping cycle"
-            );
-            return;
-        }
+    // Delay the first interval tick so it lands between other periodic
+    // flush cycles rather than potentially coinciding with them at t=0.
+    staggerTimer = setTimeout(() => {
+        staggerTimer = null;
 
-        isFlushing = true;
-        try {
-            await flushPingsToDb();
-        } catch (error) {
-            logger.error("Unhandled error in ping accumulator flush", {
-                error
-            });
-        } finally {
-            isFlushing = false;
-        }
-    }, FLUSH_INTERVAL_MS);
+        flushTimer = setInterval(async () => {
+            // Skip this tick if the previous flush is still in progress.
+            // setInterval does not await async callbacks, so without this guard
+            // two flush cycles can run concurrently and deadlock each other on
+            // overlapping bulk UPDATE statements.
+            if (isFlushing) {
+                logger.debug(
+                    "Ping accumulator: previous flush still in progress, skipping cycle"
+                );
+                return;
+            }
 
-    // Don't prevent the process from exiting
-    flushTimer.unref();
+            isFlushing = true;
+            try {
+                await flushPingsToDb();
+            } catch (error) {
+                logger.error("Unhandled error in ping accumulator flush", {
+                    error
+                });
+            } finally {
+                isFlushing = false;
+            }
+        }, FLUSH_INTERVAL_MS);
 
-    logger.debug(
-        `Ping accumulator started (flush interval: ${FLUSH_INTERVAL_MS}ms)`
-    );
+        // Don't prevent the process from exiting
+        flushTimer.unref();
+
+        logger.debug(
+            `Ping accumulator started (flush interval: ${FLUSH_INTERVAL_MS}ms, stagger: ${STAGGER_DELAY_MS}ms)`
+        );
+    }, STAGGER_DELAY_MS);
+
+    // Don't let the stagger delay prevent the process from exiting
+    staggerTimer.unref();
 }
 
 /**
@@ -396,6 +413,11 @@ export function startPingAccumulator(): void {
  * Call this during graceful shutdown.
  */
 export async function stopPingAccumulator(): Promise<void> {
+    if (staggerTimer) {
+        clearTimeout(staggerTimer);
+        staggerTimer = null;
+    }
+
     if (flushTimer) {
         clearInterval(flushTimer);
         flushTimer = null;
