@@ -500,28 +500,24 @@ function findAcmeJsonFiles(dirPath: string): string[] {
         const fullPath = path.join(dirPath, entry.name);
         if (entry.isDirectory()) {
             results.push(...findAcmeJsonFiles(fullPath));
-        } else if (entry.isFile()) {
-            // check if it is a json file
-            if (entry.name.endsWith(".json")) {
-                let raw: string;
-                try {
-                    raw = fs.readFileSync(fullPath, "utf8");
-                } catch (err) {
-                    logger.warn(
-                        `acmeCertSync: could not read file "${fullPath}": ${err}`
-                    );
-                    continue;
-                }
+        } else if (entry.isFile() && entry.name.endsWith(".json")) {
+            let raw: string;
+            try {
+                raw = fs.readFileSync(fullPath, "utf8");
+            } catch (err) {
+                logger.warn(
+                    `acmeCertSync: could not read file "${fullPath}": ${err}`
+                );
+                continue;
+            }
 
-                let parsed: any;
-                try {
-                    parsed = JSON.parse(raw);
-                } catch (err) {
-                    logger.warn(
-                        `acmeCertSync: could not parse "${fullPath}" as JSON: ${err}`
-                    );
-                    continue;
-                }
+            try {
+                JSON.parse(raw);
+            } catch (err) {
+                logger.warn(
+                    `acmeCertSync: could not parse "${fullPath}" as JSON: ${err}`
+                );
+                continue;
             }
 
             results.push(fullPath);
