@@ -18,9 +18,11 @@ import { flushBandwidthToDb } from "@server/routers/newt/handleReceiveBandwidthM
 import { flushConnectionLogToDb } from "#private/routers/newt";
 import { flushSiteBandwidthToDb } from "@server/routers/gerbil/receiveBandwidth";
 import { stopPingAccumulator } from "@server/routers/newt/pingAccumulator";
+import { shutdownAuditLogger } from "@server/routers/badger/logRequestAudit";
 
 async function cleanup() {
     await stopPingAccumulator();
+    await shutdownAuditLogger();
     await flushBandwidthToDb();
     await flushConnectionLogToDb();
     await flushSiteBandwidthToDb();
