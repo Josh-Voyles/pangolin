@@ -646,16 +646,14 @@ export async function validateOidcCallback(
                 }
             });
 
-            try {
-                await db.transaction(async (trx) => {
-                    await calculateUserClientsForOrgs(userId!, trx);
-                });
-            } catch (err) {
+            db.transaction(async (trx) => {
+                await calculateUserClientsForOrgs(userId!, trx);
+            }).catch((err) => {
                 logger.error(
                     "Error calculating user clients after syncing orgs and roles for OIDC user",
                     { error: err }
                 );
-            }
+            });
 
             for (const orgCount of orgUserCounts) {
                 await usageService.updateCount(

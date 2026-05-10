@@ -2,12 +2,10 @@ import { flushBandwidthToDb } from "@server/routers/newt/handleReceiveBandwidthM
 import { flushConnectionLogToDb } from "#dynamic/routers/newt";
 import { flushSiteBandwidthToDb } from "@server/routers/gerbil/receiveBandwidth";
 import { stopPingAccumulator } from "@server/routers/newt/pingAccumulator";
-import { shutdownAuditLogger } from "@server/routers/badger/logRequestAudit";
 import { cleanup as wsCleanup } from "#dynamic/routers/ws";
 
 async function cleanup() {
     await stopPingAccumulator();
-    await shutdownAuditLogger();
     await flushBandwidthToDb();
     await flushConnectionLogToDb();
     await flushSiteBandwidthToDb();

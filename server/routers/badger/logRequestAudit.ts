@@ -1,4 +1,4 @@
-import { logsDb, primaryLogsDb, db, orgs, requestAuditLog, DB_TYPE } from "@server/db";
+import { logsDb, primaryLogsDb, db, orgs, requestAuditLog } from "@server/db";
 import logger from "@server/logger";
 import { and, eq, lt, sql } from "drizzle-orm";
 import cache from "#dynamic/lib/cache";
@@ -51,9 +51,8 @@ const auditLogBuffer: Array<{
     tls: boolean;
 }> = [];
 
-// SQLite: larger batch + longer interval to reduce exclusive lock contention
-const BATCH_SIZE = DB_TYPE === "sqlite" ? 250 : 100;
-const BATCH_INTERVAL_MS = DB_TYPE === "sqlite" ? 15_000 : 5_000;
+const BATCH_SIZE = 100; // Write to DB every 100 logs
+const BATCH_INTERVAL_MS = 5000; // Or every 5 seconds, whichever comes first
 const MAX_BUFFER_SIZE = 10000; // Prevent unbounded memory growth
 let flushTimer: NodeJS.Timeout | null = null;
 let isFlushInProgress = false;
