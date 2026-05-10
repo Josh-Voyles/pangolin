@@ -54,6 +54,17 @@ function createDb() {
         sqlite.pragma("journal_mode = WAL");
         // NORMAL sync mode: safe with WAL, reduces write lock hold time.
         sqlite.pragma("synchronous = NORMAL");
+
+        // 256 MB memory-mapped I/O — OS serves reads from page cache directly,
+        // reducing event-loop blocking. Full benefit in WAL mode where mmap'd
+        // reads are never blocked by writers.
+        sqlite.pragma("mmap_size = 268435456");
+    } else {
+        // 128 MB memory-mapped I/O for DELETE journal mode. Reduced from 256 MB
+        // because mmap'd reads can still be blocked by writers holding the
+        // exclusive lock, so the concurrency benefit is diminished while the
+        // virtual address space reservation remains.
+        sqlite.pragma("mmap_size = 134217728");
     }
 
     // Wait up to 5s on SQLITE_BUSY instead of failing — prevents audit log
@@ -63,10 +74,6 @@ function createDb() {
     // 64 MB page cache (default 2 MB) — reduces I/O round-trips on large
     // TraefikConfigManager JOINs that block the event loop.
     sqlite.pragma("cache_size = -65536");
-
-    // 256 MB memory-mapped I/O — OS serves reads from page cache directly,
-    // reducing event-loop blocking.
-    sqlite.pragma("mmap_size = 268435456");
 
     // Wrap prepare() so every drizzle-orm statement is auto-finalized after
     // first use, preventing sqlite3_stmt accumulation between GC cycles.
