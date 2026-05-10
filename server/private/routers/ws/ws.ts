@@ -404,8 +404,7 @@ const removeClient = async (
     const updatedClients = existingClients.filter((client) => client !== ws);
     if (updatedClients.length === 0) {
         connectedClients.delete(mapKey);
-        // Remove clientId from clientConfigVersions on disconnect — prevents
-        // unbounded memory growth from stale entries.
+        // Prevent stale entry buildup
         clientConfigVersions.delete(clientId);
 
         if (redisManager.isRedisEnabled()) {
@@ -1098,8 +1097,7 @@ const disconnectClient = async (clientId: string): Promise<boolean> => {
         }
     });
 
-    // Eagerly remove client — close event may not fire if socket is already
-    // CLOSING, leaving zombie entries.
+    // Eager cleanup — close event may not fire if socket already CLOSING
     connectedClients.delete(mapKey);
     clientConfigVersions.delete(clientId);
 

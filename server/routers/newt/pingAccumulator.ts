@@ -353,12 +353,8 @@ function isTransientError(error: any): boolean {
 // ── Lifecycle ──────────────────────────────────────────────────────────
 
 /**
- * Start the background flush timer. Call this once at server startup.
- *
- * The timer is offset by STAGGER_DELAY_MS so that ping flushes do not
- * coincide with other periodic writers (audit log flushes, Traefik config
- * reads). In SQLite DELETE journal mode every writer acquires an exclusive
- * file-level lock, so staggering reduces peak contention windows.
+ * Start background flush timer. Call once at server startup.
+ * Staggered 5s to avoid overlapping with other periodic DB writers.
  */
 const STAGGER_DELAY_MS = 5000;
 
@@ -367,16 +363,12 @@ export function startPingAccumulator(): void {
         return; // Already running or starting up
     }
 
-    // Delay the first interval tick so it lands between other periodic
-    // flush cycles rather than potentially coinciding with them at t=0.
+    // Offset first tick to avoid coinciding with other flushes at t=0
     staggerTimer = setTimeout(() => {
         staggerTimer = null;
 
         flushTimer = setInterval(async () => {
-            // Skip this tick if the previous flush is still in progress.
-            // setInterval does not await async callbacks, so without this guard
-            // two flush cycles can run concurrently and deadlock each other on
-            // overlapping bulk UPDATE statements.
+            // Skip if previous flush still running (setInterval won't await)
             if (isFlushing) {
                 logger.debug(
                     "Ping accumulator: previous flush still in progress, skipping cycle"
@@ -396,7 +388,7 @@ export function startPingAccumulator(): void {
             }
         }, FLUSH_INTERVAL_MS);
 
-        // Don't prevent the process from exiting
+        // Don't block process exit
         flushTimer.unref();
 
         logger.debug(
@@ -404,7 +396,7 @@ export function startPingAccumulator(): void {
         );
     }, STAGGER_DELAY_MS);
 
-    // Don't let the stagger delay prevent the process from exiting
+    // Don't block process exit
     staggerTimer.unref();
 }
 

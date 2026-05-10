@@ -51,10 +51,7 @@ const auditLogBuffer: Array<{
     tls: boolean;
 }> = [];
 
-// In SQLite DELETE journal mode, each flush acquires an exclusive file-level
-// lock. Larger, less frequent flushes reduce contention with concurrent
-// readers (verifySession, TraefikConfigManager) at the cost of slightly
-// delayed audit log persistence — acceptable for non-critical telemetry data.
+// SQLite: larger batch + longer interval to reduce exclusive lock contention
 const BATCH_SIZE = DB_TYPE === "sqlite" ? 250 : 100;
 const BATCH_INTERVAL_MS = DB_TYPE === "sqlite" ? 15_000 : 5_000;
 const MAX_BUFFER_SIZE = 10000; // Prevent unbounded memory growth
