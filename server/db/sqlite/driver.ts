@@ -13,11 +13,9 @@ export const exists = checkFileExists(location);
 bootstrapVolume();
 
 /**
- * Wraps better-sqlite3 Statement to call `finalize()` immediately after
- * execution, freeing native sqlite3_stmt memory deterministically instead
- * of waiting for GC. Fixes steady off-heap growth under load (#2120).
- * WARNING: Finalizes after first execution — incompatible with drizzle's
- * reusable .prepare() builders. No such usage exists in this codebase.
+ * Calls finalize() after execution — frees native memory without waiting for GC.
+ * Fixes off-heap growth under load (#2120).
+ * WARNING: Statement unusable after first exec. Drizzle doesn't reuse prepared statements.
  */
 function autoFinalizeStatement(
     stmt: BetterSqlite3.Statement
@@ -28,8 +26,7 @@ function autoFinalizeStatement(
                 return fn.apply(this, args);
             } finally {
                 try {
-                    // finalize() exists on the native Statement at runtime but
-                    // is missing from @types/better-sqlite3.
+                    // Not in @types/better-sqlite3 but exists at runtime
                     (stmt as any).finalize();
                 } catch {
                     // Already finalized — harmless
@@ -49,34 +46,24 @@ function createDb() {
     const sqlite = new Database(location);
 
     if (process.env.ENABLE_SQLITE_WAL_MODE == "true") {
-        // Enable WAL mode — allows concurrent readers + single writer, preventing
-        // contention across subsystems (verifySession, Traefik, audit, ping).
+        // WAL: concurrent readers + single writer
         sqlite.pragma("journal_mode = WAL");
-        // NORMAL sync mode: safe with WAL, reduces write lock hold time.
         sqlite.pragma("synchronous = NORMAL");
 
-        // 256 MB memory-mapped I/O — OS serves reads from page cache directly,
-        // reducing event-loop blocking. Full benefit in WAL mode where mmap'd
-        // reads are never blocked by writers.
+        // 256 MB mmap — reads served from page cache, never blocked by writers
         sqlite.pragma("mmap_size = 268435456");
     } else {
-        // 128 MB memory-mapped I/O for DELETE journal mode. Reduced from 256 MB
-        // because mmap'd reads can still be blocked by writers holding the
-        // exclusive lock, so the concurrency benefit is diminished while the
-        // virtual address space reservation remains.
+        // 128 MB mmap — reduced benefit in DELETE mode (readers blocked by writers)
         sqlite.pragma("mmap_size = 134217728");
     }
 
-    // Wait up to 5s on SQLITE_BUSY instead of failing — prevents audit log
-    // retry loops that accumulate memory.
+    // 5s busy timeout — prevents immediate SQLITE_BUSY failures
     sqlite.pragma("busy_timeout = 5000");
 
-    // 64 MB page cache (default 2 MB) — reduces I/O round-trips on large
-    // TraefikConfigManager JOINs that block the event loop.
+    // 64 MB page cache (default 2 MB) — fewer I/O round-trips on large JOINs
     sqlite.pragma("cache_size = -65536");
 
-    // Wrap prepare() so every drizzle-orm statement is auto-finalized after
-    // first use, preventing sqlite3_stmt accumulation between GC cycles.
+    // Auto-finalize every prepared statement after first use
     const originalPrepare = sqlite.prepare.bind(sqlite);
     (sqlite as any).prepare = function autoFinalizePrepare(source: string) {
         return autoFinalizeStatement(originalPrepare(source));
