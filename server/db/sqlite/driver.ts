@@ -60,13 +60,7 @@ function createDb() {
     // retry loops that accumulate memory.
     sqlite.pragma("busy_timeout = 5000");
 
-    // 64 MB page cache (default 2 MB) — reduces I/O round-trips on large
-    // TraefikConfigManager JOINs that block the event loop.
-    sqlite.pragma("cache_size = -65536");
-
-    // 256 MB memory-mapped I/O — OS serves reads from page cache directly,
-    // reducing event-loop blocking.
-    sqlite.pragma("mmap_size = 268435456");
+    // removed mmap_size and cache_size pragmas due to performance issues on small instances
 
     // Wrap prepare() so every drizzle-orm statement is auto-finalized after
     // first use, preventing sqlite3_stmt accumulation between GC cycles.
