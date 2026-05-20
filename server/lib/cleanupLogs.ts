@@ -1,14 +1,15 @@
-import { db, orgs } from "@server/db";
+import { db, logsDb, orgs, statusHistory } from "@server/db";
 import { cleanUpOldLogs as cleanUpOldAccessLogs } from "#dynamic/lib/logAccessAudit";
 import { cleanUpOldLogs as cleanUpOldActionLogs } from "#dynamic/middlewares/logActionAudit";
 import { cleanUpOldLogs as cleanUpOldRequestLogs } from "@server/routers/badger/logRequestAudit";
 import { cleanUpOldLogs as cleanUpOldConnectionLogs } from "#dynamic/routers/newt";
-import { gt, or } from "drizzle-orm";
+import { gt, lt, or } from "drizzle-orm";
 import { cleanUpOldFingerprintSnapshots } from "@server/routers/olm/fingerprintingUtils";
 import { build } from "@server/build";
 
 export function initLogCleanupInterval() {
-    if (build == "saas") { // skip log cleanup for saas builds
+    if (build == "saas") {
+        // skip log cleanup for saas builds
         return null;
     }
     return setInterval(
@@ -75,6 +76,12 @@ export function initLogCleanupInterval() {
             }
 
             await cleanUpOldFingerprintSnapshots(365);
+
+            // Clean up old status history entries (90 days retention)
+            const statusHistoryCutoff = calculateCutoffTimestamp(90);
+            await logsDb
+                .delete(statusHistory)
+                .where(lt(statusHistory.timestamp, statusHistoryCutoff));
         },
         3 * 60 * 60 * 1000
     ); // every 3 hours
