@@ -56,14 +56,10 @@ export const handleOlmPingMessage: MessageHandler = async (context) => {
         // Fast-path: single PK SELECT on every ping. Cheap enough to run
         // unthrottled, and gating recordClientPing on the blocked check
         // preserves the offline-checker-driven disconnect path for blocked
-        // clients.
+        // clients. Selects the full row because sendOlmSyncMessage needs it
+        // on the slow-path config-mismatch branch.
         const [client] = await db
-            .select({
-                clientId: clients.clientId,
-                userId: clients.userId,
-                orgId: clients.orgId,
-                blocked: clients.blocked
-            })
+            .select()
             .from(clients)
             .where(eq(clients.clientId, olm.clientId))
             .limit(1);
