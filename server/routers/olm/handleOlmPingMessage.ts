@@ -13,9 +13,19 @@ import { sendOlmSyncMessage } from "./sync";
 import { handleFingerprintInsertion } from "./fingerprintingUtils";
 
 // Throttle expensive operations (session validation, config sync, fingerprint)
-// to once every 5 minutes per OLM instead of on every single ping.
+// to once every 5 minutes per OLM. The cheap PK lookup that checks
+// `clients.blocked` still runs every ping so admin block actions take effect
+// immediately via the offline checker.
 const FULL_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const lastFullCheck: Map<string, number> = new Map();
+
+/**
+ * Drop a per-OLM throttle entry. Called from the WS close handler so the
+ * map doesn't accumulate entries for the process lifetime as OLMs churn.
+ */
+export function evictOlmPingState(olmId: string): void {
+    lastFullCheck.delete(olmId);
+}
 
 /**
  * Handles ping messages from clients and responds with pong
@@ -38,32 +48,42 @@ export const handleOlmPingMessage: MessageHandler = async (context) => {
 
     const isUserDevice = olm.userId !== null && olm.userId !== undefined;
 
-    // Determine if we need to run the expensive checks this ping
     const now = Date.now();
     const lastCheck = lastFullCheck.get(olm.olmId) || 0;
     const needsFullCheck = now - lastCheck >= FULL_CHECK_INTERVAL_MS;
 
     try {
+        // Fast-path: single PK SELECT on every ping. Cheap enough to run
+        // unthrottled, and gating recordClientPing on the blocked check
+        // preserves the offline-checker-driven disconnect path for blocked
+        // clients.
+        const [client] = await db
+            .select({
+                clientId: clients.clientId,
+                userId: clients.userId,
+                orgId: clients.orgId,
+                blocked: clients.blocked
+            })
+            .from(clients)
+            .where(eq(clients.clientId, olm.clientId))
+            .limit(1);
+
+        if (!client) {
+            logger.warn("Client not found for olm ping");
+            return;
+        }
+
+        if (client.blocked) {
+            // NOTE: by returning we dont update the lastPing, so the offline
+            // checker will eventually disconnect them.
+            logger.debug(
+                `Blocked client ${client.clientId} attempted olm ping`
+            );
+            return;
+        }
+
         if (needsFullCheck) {
-            // Full validation: DB lookup, session check, policy, config sync, fingerprint
-            const [client] = await db
-                .select()
-                .from(clients)
-                .where(eq(clients.clientId, olm.clientId))
-                .limit(1);
-
-            if (!client) {
-                logger.warn("Client not found for olm ping");
-                return;
-            }
-
-            if (client.blocked) {
-                logger.debug(
-                    `Blocked client ${client.clientId} attempted olm ping`
-                );
-                return;
-            }
-
+            // Slow-path: session validation, policy, config sync, fingerprint.
             if (olm.userId) {
                 const { session: userSession, user } =
                     await validateSessionToken(userToken);
@@ -118,7 +138,6 @@ export const handleOlmPingMessage: MessageHandler = async (context) => {
             lastFullCheck.set(olm.olmId, now);
         }
 
-        // Always record the ping (cheap in-memory Map.set)
         recordClientPing(olm.clientId, olm.olmId, !!olm.archived);
     } catch (error) {
         logger.error("Error handling ping message", { error });
