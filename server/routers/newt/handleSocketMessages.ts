@@ -24,8 +24,8 @@ export const handleDockerStatusMessage: MessageHandler = async (context) => {
 
     if (available) {
         logger.debug(`Newt ${newt.newtId} has Docker socket access`);
-        await cache.set(`${newt.newtId}:socketPath`, socketPath, 0);
-        await cache.set(`${newt.newtId}:isAvailable`, available, 0);
+        await cache.set(`${newt.newtId}:socketPath`, socketPath, 300);
+        await cache.set(`${newt.newtId}:isAvailable`, available, 300);
     } else {
         logger.debug(`Newt ${newt.newtId} does not have Docker socket access`);
     }
@@ -54,7 +54,7 @@ export const handleDockerContainersMessage: MessageHandler = async (
     );
 
     if (containers && containers.length > 0) {
-        await cache.set(`${newt.newtId}:dockerContainers`, containers, 0);
+        await cache.set(`${newt.newtId}:dockerContainers`, containers, 300);
     } else {
         logger.debug(`Newt ${newt.newtId} does not have Docker containers`);
     }
