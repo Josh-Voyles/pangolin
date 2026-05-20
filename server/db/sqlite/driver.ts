@@ -1,6 +1,5 @@
 import { drizzle as DrizzleSqlite } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
-import type BetterSqlite3 from "better-sqlite3";
 import * as schema from "./schema/schema";
 import path from "path";
 import fs from "fs";
@@ -11,39 +10,6 @@ export const location = path.join(APP_PATH, "db", "db.sqlite");
 export const exists = checkFileExists(location);
 
 bootstrapVolume();
-
-/**
- * Wraps better-sqlite3 Statement to call `finalize()` immediately after
- * execution, freeing native sqlite3_stmt memory deterministically instead
- * of waiting for GC. Fixes steady off-heap growth under load (#2120).
- * WARNING: Finalizes after first execution — incompatible with drizzle's
- * reusable .prepare() builders. No such usage exists in this codebase.
- */
-function autoFinalizeStatement(
-    stmt: BetterSqlite3.Statement
-): BetterSqlite3.Statement {
-    const wrapExec = <T extends (...args: any[]) => any>(fn: T): T => {
-        return function (this: any, ...args: any[]) {
-            try {
-                return fn.apply(this, args);
-            } finally {
-                try {
-                    // finalize() exists on the native Statement at runtime but
-                    // is missing from @types/better-sqlite3.
-                    (stmt as any).finalize();
-                } catch {
-                    // Already finalized — harmless
-                }
-            }
-        } as unknown as T;
-    };
-
-    stmt.run = wrapExec(stmt.run);
-    stmt.get = wrapExec(stmt.get);
-    stmt.all = wrapExec(stmt.all);
-
-    return stmt;
-}
 
 function createDb() {
     const sqlite = new Database(location);
@@ -61,13 +27,7 @@ function createDb() {
     sqlite.pragma("busy_timeout = 5000");
 
     // removed mmap_size and cache_size pragmas due to performance issues on small instances
-
-    // Wrap prepare() so every drizzle-orm statement is auto-finalized after
-    // first use, preventing sqlite3_stmt accumulation between GC cycles.
-    const originalPrepare = sqlite.prepare.bind(sqlite);
-    (sqlite as any).prepare = function autoFinalizePrepare(source: string) {
-        return autoFinalizeStatement(originalPrepare(source));
-    };
+    // No autoFinalizeStatement wrapper — better-sqlite3 finalizes via GC (#2120).
 
     return DrizzleSqlite(sqlite, {
         schema

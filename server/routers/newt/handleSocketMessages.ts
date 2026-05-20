@@ -24,6 +24,7 @@ export const handleDockerStatusMessage: MessageHandler = async (context) => {
 
     if (available) {
         logger.debug(`Newt ${newt.newtId} has Docker socket access`);
+        // TTL 300s — avoids permanent cache accumulation from stale newts
         await cache.set(`${newt.newtId}:socketPath`, socketPath, 300);
         await cache.set(`${newt.newtId}:isAvailable`, available, 300);
     } else {
@@ -54,6 +55,7 @@ export const handleDockerContainersMessage: MessageHandler = async (
     );
 
     if (containers && containers.length > 0) {
+        // TTL 300s — avoids permanent cache accumulation from stale newts
         await cache.set(`${newt.newtId}:dockerContainers`, containers, 300);
     } else {
         logger.debug(`Newt ${newt.newtId} does not have Docker containers`);

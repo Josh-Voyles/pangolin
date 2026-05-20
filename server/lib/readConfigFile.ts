@@ -238,7 +238,7 @@ export const configSchema = z
                 cert_resolver: z.string().optional().default("letsencrypt"),
                 prefer_wildcard_cert: z.boolean().optional().default(false),
                 certificates_path: z.string().default("/var/certificates"),
-                monitor_interval: z.number().default(30000),
+                monitor_interval: z.number().default(30000), // 30s — lower values increase allocation pressure from full config rebuilds
                 dynamic_cert_config_path: z
                     .string()
                     .optional()
