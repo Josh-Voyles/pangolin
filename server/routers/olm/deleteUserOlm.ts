@@ -10,7 +10,7 @@ import { fromError } from "zod-validation-error";
 import logger from "@server/logger";
 import { OpenAPITags, registry } from "@server/openApi";
 import { rebuildClientAssociationsFromClient } from "@server/lib/rebuildClientAssociations";
-import { sendTerminateClient } from "../client/terminate";
+import { terminateAndDisconnect } from "../client/terminate";
 import { OlmErrorCodes } from "./error";
 
 const paramsSchema = z
@@ -50,7 +50,7 @@ export async function deleteUserOlm(
         const { olmId } = parsedParams.data;
 
         // Delete associated clients and the OLM in a transaction
-        await db.transaction(async (trx) => {
+        const toTerminate = await db.transaction(async (trx) => {
             // Find all clients associated with this OLM
             const associatedClients = await trx
                 .select({ clientId: clients.clientId })
@@ -75,14 +75,24 @@ export async function deleteUserOlm(
             if (deletedClient) {
                 await rebuildClientAssociationsFromClient(deletedClient, trx);
                 if (olm) {
-                    await sendTerminateClient(
-                        deletedClient.clientId,
-                        OlmErrorCodes.TERMINATED_DELETED,
-                        olm.olmId
-                    ); //  the olmId needs to be provided because it cant look it up after deletion
+                    // Return termination data; olmId has to be captured here
+                    // because it cant be looked up after deletion.
+                    return {
+                        clientId: deletedClient.clientId,
+                        olmId: olm.olmId
+                    };
                 }
             }
+            return null;
         });
+
+        if (toTerminate) {
+            await terminateAndDisconnect(
+                toTerminate.clientId,
+                OlmErrorCodes.TERMINATED_DELETED,
+                toTerminate.olmId
+            );
+        }
 
         return response(res, {
             data: null,

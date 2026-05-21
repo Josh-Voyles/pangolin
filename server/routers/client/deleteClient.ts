@@ -10,7 +10,7 @@ import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
 import { OpenAPITags, registry } from "@server/openApi";
 import { rebuildClientAssociationsFromClient } from "@server/lib/rebuildClientAssociations";
-import { sendTerminateClient } from "./terminate";
+import { terminateAndDisconnect } from "./terminate";
 import { OlmErrorCodes } from "../olm/error";
 
 const deleteClientSchema = z.strictObject({
@@ -71,7 +71,7 @@ export async function deleteClient(
             );
         }
 
-        await db.transaction(async (trx) => {
+        const toTerminate = await db.transaction(async (trx) => {
             // Then delete the client itself
             const [deletedClient] = await trx
                 .delete(clients)
@@ -91,10 +91,20 @@ export async function deleteClient(
 
             await rebuildClientAssociationsFromClient(deletedClient, trx);
 
-            if (olm) {
-                await sendTerminateClient(deletedClient.clientId, OlmErrorCodes.TERMINATED_DELETED, olm.olmId); //  the olmId needs to be provided because it cant look it up after deletion
-            }
+            // Return termination data for after-commit handling; olmId has to
+            // be captured here because it cant be looked up after deletion.
+            return olm
+                ? { clientId: deletedClient.clientId, olmId: olm.olmId }
+                : null;
         });
+
+        if (toTerminate) {
+            await terminateAndDisconnect(
+                toTerminate.clientId,
+                OlmErrorCodes.TERMINATED_DELETED,
+                toTerminate.olmId
+            );
+        }
 
         return response(res, {
             data: null,

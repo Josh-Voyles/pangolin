@@ -9,7 +9,7 @@ import createHttpError from "http-errors";
 import logger from "@server/logger";
 import { fromError } from "zod-validation-error";
 import { OpenAPITags, registry } from "@server/openApi";
-import { sendTerminateClient } from "./terminate";
+import { terminateAndDisconnect } from "./terminate";
 import { OlmErrorCodes } from "../olm/error";
 
 const blockClientSchema = z.strictObject({
@@ -71,17 +71,21 @@ export async function blockClient(
         }
 
         await db.transaction(async (trx) => {
-            // Block the client
             await trx
                 .update(clients)
                 .set({ blocked: true, approvalState: "denied" })
                 .where(eq(clients.clientId, clientId));
-
-            // Send terminate signal if there's an associated OLM and it's connected
-            if (client.olmId && client.online) {
-                await sendTerminateClient(client.clientId, OlmErrorCodes.TERMINATED_BLOCKED, client.olmId);
-            }
         });
+
+        // Push termination after commit so a misbehaving OLM stops pinging
+        // immediately instead of waiting for the offline checker.
+        if (client.olmId && client.online) {
+            await terminateAndDisconnect(
+                client.clientId,
+                OlmErrorCodes.TERMINATED_BLOCKED,
+                client.olmId
+            );
+        }
 
         return response(res, {
             data: null,
