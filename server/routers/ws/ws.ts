@@ -29,7 +29,6 @@ import {
     SendMessageOptions
 } from "./types";
 import { validateSessionToken } from "@server/auth/sessions/app";
-import { evictOlmPingState } from "@server/routers/olm/handleOlmPingMessage";
 
 // Subset of TokenPayload for public ws.ts (newt and olm only)
 interface PublicTokenPayload {
@@ -392,9 +391,6 @@ const setupConnection = async (
 
     ws.on("close", () => {
         removeClient(clientType, clientId, ws);
-        if (clientType === "olm") {
-            evictOlmPingState(clientId);
-        }
         logger.info(
             `Client disconnected - ${clientType.toUpperCase()} ID: ${clientId}`
         );
